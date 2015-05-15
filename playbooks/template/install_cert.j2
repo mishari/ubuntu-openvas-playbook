@@ -1,0 +1,17 @@
+#!/usr/bin/env expect
+
+spawn /usr/local/sbin/openvas-mkcert -f -a
+expect "]: "
+send "\n"
+expect "]: "
+send "\n"
+expect "]: "
+send "\n"
+expect "]: "
+send "\n"
+expect "]: "
+send "\n"
+expect "]: "
+send "\n"
+expect "exit"
+send "\n"

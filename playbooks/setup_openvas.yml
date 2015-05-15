@@ -1,0 +1,114 @@
+---
+- hosts: all
+  gather_facts: no
+  remote_user: root
+
+  vars:
+    lib_file: openvas-libraries-8.0.1
+    scanner_file: openvas-scanner-5.0.1
+    manager_file: openvas-manager-6.0.1
+    gsa_file: greenbone-security-assistant-6.0.1
+    cli_file: openvas-cli-1.4.0
+    
+  tasks:
+    - name: Update Ubuntu
+      apt: upgrade=safe update_cache=yes cache_valid_time=14400
+      
+    - name: Install dependencies
+      apt: name='{{ item }}' state=present
+      with_items:
+        - sqlite3
+        - libsqlite3-dev
+        - cmake
+        - build-essential
+        - pkg-config
+        - doxygen
+        - libgcrypt11-dev
+        - libglib2.0-dev
+        - uuid-dev
+        - bison
+        - libldap-dev
+        - libpcap-dev
+        - libhiredis-dev
+        - libgpgme11-dev
+        - libksba-dev
+        - libssh-dev
+        - xsltproc
+        - libgnutls-dev
+        - sqlfairy
+        - xmltoman
+        - libmicrohttpd-dev
+        - libxml2-dev
+        - libxslt1-dev
+        - expect
+        - redis-server
+        - nmap
+        - texlive-latex-base
+    
+    - name: Configuring socket on redis
+      template: src=template/redis.conf.j2 dest=/etc/redis/redis.conf
+       
+    - service: name=redis-server state=restarted
+    
+    - name: Get OpenVAS packages into /tmp
+      get_url: url=http://wald.intevation.org/frs/download.php/2015/{{lib_file}}.tar.gz dest=/tmp sha256sum=3377d8302c4d9155cb5af7eec10fb575dc6b1920850779747adc99d98b48040c
+    - get_url: url=http://wald.intevation.org/frs/download.php/2016/{{scanner_file}}.tar.gz dest=/tmp sha256sum=028a913d2888b360e48933de45059597e54878c6c1fb904c72a2ccf1b1bf647f
+    - get_url: url=http://wald.intevation.org/frs/download.php/2017/{{ manager_file }}.tar.gz dest=/tmp sha256sum=cf0a21f70ce56ad5f17402c4360c31791b0763e78a963a75f1d569f648bd8735
+    - get_url: url=http://wald.intevation.org/frs/download.php/2018/{{ gsa_file }}.tar.gz dest=/tmp sha256sum=79fe695525a5a292cd8daa936f30347a12c2b78f90a6ce56a64355957c518a73
+
+    - get_url: url=http://wald.intevation.org/frs/download.php/1987/{{cli_file}}.tar.gz dest=/tmp
+    - name: Extract files
+      unarchive: src=/tmp/{{item}}.tar.gz dest=/tmp copy=no
+      with_items:
+        - "{{lib_file}}"
+        - "{{scanner_file}}"
+        - "{{manager_file}}"
+        - "{{gsa_file}}"
+        - "{{cli_file}}"
+
+    - name: Create build directories
+      file: path=/tmp/{{item}}/build state=directory
+      with_items:
+        - "{{lib_file}}"
+        - "{{scanner_file}}"
+        - "{{manager_file}}"
+        - "{{gsa_file}}"
+        - "{{cli_file}}"
+
+    - shell: cmake .. chdir=/tmp/{{lib_file}}/build
+    - shell: make chdir=/tmp/{{lib_file}}/build
+    - shell: make install chdir=/tmp/{{lib_file}}/build
+
+    - shell: cmake .. chdir=/tmp/{{scanner_file}}/build
+    - shell: make chdir=/tmp/{{scanner_file}}/build
+    - shell: make install chdir=/tmp/{{scanner_file}}/build
+
+    - shell: cmake .. chdir=/tmp/{{manager_file}}/build
+    - shell: make chdir=/tmp/{{manager_file}}/build
+    - shell: make install chdir=/tmp/{{manager_file}}/build
+
+    - shell: cmake .. chdir=/tmp/{{gsa_file}}/build
+    - shell: make chdir=/tmp/{{gsa_file}}/build
+    - shell: make install chdir=/tmp/{{gsa_file}}/build
+
+    - shell: cmake .. chdir=/tmp/{{cli_file}}/build
+    - shell: make chdir=/tmp/{{cli_file}}/build
+    - shell: make install chdir=/tmp/{{cli_file}}/build
+        
+    - template: src=template/install_cert.j2 dest=/tmp/install_cert mode=0700
+    - command: /tmp/install_cert creates=/usr/local/var/lib/openvas/CA/cacert.pem
+    - command: ldconfig
+    - command: openvas-nvt-sync
+    - command: openvas-mkcert-client -n -i creates=/usr/local/var/lib/openvas/CA/clientcert.pem
+    - command: openvasmd --create-user=admin --role=Admin
+      ignore_errors: yes
+    - command: openvasmd --user=admin --new-password=admin
+    - command: openvassd --listen=127.0.0.1
+      ignore_errors: yes
+    - command: openvasmd --rebuild
+    - command: openvas-scapdata-sync
+    - command: openvas-certdata-sync
+    - command: openvasmd --listen=127.0.0.1 --disable-encrypted-credentials
+      ignore_errors: yes
+    - command: gsad --listen=127.0.0.1 --mlisten=127.0.0.1 --http-only
+      ignore_errors: yes
